@@ -409,7 +409,58 @@ function KanbanSkeleton() {
     </div>
   );
 }
+// ─── Vendor Filter Bar ─────────────────────────────────────────────────────────
 
+function VendorFilterBar({
+  users, selectedUsers, openCounts, onToggle, ownerId,
+}: {
+  users: { id: number; name: string }[];
+  selectedUsers: number[];
+  openCounts: Record<number, number>;
+  onToggle: (id: number) => void;
+  ownerId: number;
+}) {
+  return (
+    <div className="flex gap-3 overflow-x-auto pb-2">
+      {users.map((u) => {
+        const isSelected = selectedUsers.includes(u.id);
+        const isOwner = u.id === ownerId;
+        const count = openCounts[u.id] ?? 0;
+
+        return (
+          <button
+            key={u.id}
+            onClick={() => onToggle(u.id)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left shrink-0 transition-colors ${
+              isSelected
+                ? 'bg-indigo-600 border-indigo-600 text-white'
+                : 'bg-white border-gray-200 text-gray-700 hover:border-indigo-200'
+            }`}
+          >
+            <div className={`w-7 h-7 rounded-full text-[11px] font-bold flex items-center justify-center shrink-0 ${
+              isSelected ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
+            }`}>
+              {getInitials(u.name)}
+            </div>
+            <div className="flex flex-col leading-tight">
+              <span className="text-xs font-semibold flex items-center gap-1">
+                {u.name.split(' ')[0]}
+                {isOwner && (
+                  <span className={`text-[9px] uppercase font-bold ${isSelected ? 'text-white/70' : 'text-amber-500'}`}>
+                    dono
+                  </span>
+                )}
+              </span>
+              <span className={`text-[11px] ${isSelected ? 'text-white/80' : 'text-gray-400'}`}>
+                {count} em aberto
+              </span>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 // ─── App Principal ────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -421,6 +472,7 @@ export default function App() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [showModal, setShowModal]   = useState(false);
   const [saving, setSaving]         = useState(false);
+  const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
 
   // ── Fetch inicial ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -512,61 +564,84 @@ export default function App() {
 
     setSaving(false);
   }
+
+    // ── Filtro por vendedor ─────────────────────────────────────────────────────
+  function toggleUserFilter(userId: number) {
+    setSelectedUsers((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  }
+
+  // ── Tarefas visíveis (aplica o filtro de vendedor) ──────────────────────────
+  const visibleTasks = useMemo(() => {
+    if (selectedUsers.length === 0) {
+      return tasks.filter((t) => t.user_id !== OWNER_ID);
+    }
+    return tasks.filter((t) => t.user_id !== null && selectedUsers.includes(t.user_id));
+  }, [tasks, selectedUsers]);
+
+    // ── Contagem de tarefas em aberto por vendedor (pra top bar) ────────────────
+  const openTaskCountByUser = useMemo(() => {
+    const counts: Record<number, number> = {};
+    tasks.forEach((t) => {
+      if (t.status !== 'Concluído' && t.user_id !== null) {
+        counts[t.user_id] = (counts[t.user_id] ?? 0) + 1;
+      }
+    });
+    return counts;
+  }, [tasks]);
+
   // ── KPIs ───────────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
-    
-    const teamTasks  = tasks.filter((t) => t.user_id !== OWNER_ID);
-    const total      = teamTasks.length;
-    const done       = teamTasks.filter((t) => t.status === 'Concluído').length;
-    const inProgress = teamTasks.filter((t) => t.status === 'Em Andamento').length;
-    const overdue    = teamTasks.filter((t) => isOverdue(t.due_date, t.status)).length;
-    const rate        = total > 0 ? Math.round((done / total) * 100) : 0;
-
+    const total      = visibleTasks.length;
+    const done       = visibleTasks.filter((t) => t.status === 'Concluído').length;
+    const inProgress = visibleTasks.filter((t) => t.status === 'Em Andamento').length;
+    const overdue    = visibleTasks.filter((t) => isOverdue(t.due_date, t.status)).length;
+    const rate       = total > 0 ? Math.round((done / total) * 100) : 0;
+  
     // Carga: membro com mais tarefas abertas
     const load: Record<string, number> = {};
-    tasks
-      .filter((t) => t.status !== 'Concluído' && t.users?.name && t.user_id !== OWNER_ID)   
+    visibleTasks
+      .filter((t) => t.status !== 'Concluído' && t.users?.name)
       .forEach((t) => {
         const n = t.users!.name;
         load[n] = (load[n] ?? 0) + 1;
       });
     const topMember = Object.entries(load).sort((a, b) => b[1] - a[1])[0];
-
-    // Quem tem MENOS demandas abertas
     const leastLoaded = Object.entries(load).sort((a, b) => a[1] - b[1])[0];
-
+  
     // Quem tem MAIS tarefas atrasadas
     const overdueByMember: Record<string, number> = {};
-    tasks
-      .filter((t) => isOverdue(t.due_date, t.status) && t.users?.name && t.user_id !== OWNER_ID)
+    visibleTasks
+      .filter((t) => isOverdue(t.due_date, t.status) && t.users?.name)
       .forEach((t) => {
         const n = t.users!.name;
         overdueByMember[n] = (overdueByMember[n] ?? 0) + 1;
       });
     const mostOverdue = Object.entries(overdueByMember).sort((a, b) => b[1] - a[1])[0];
-
-    // Quem mais concluiu no prazo
+  
+    // Quem mais concluiu
     const completedOnTime: Record<string, number> = {};
-    tasks
-      .filter((t) => t.status === 'Concluído' && t.users?.name && t.user_id !== OWNER_ID)
+    visibleTasks
+      .filter((t) => t.status === 'Concluído' && t.users?.name)
       .forEach((t) => {
         const n = t.users!.name;
         completedOnTime[n] = (completedOnTime[n] ?? 0) + 1;
       });
     const topCompleter = Object.entries(completedOnTime).sort((a, b) => b[1] - a[1])[0];
-
+  
     return { total, done, inProgress, overdue, rate, topMember, leastLoaded, mostOverdue, topCompleter };
-  }, [tasks]);
+  }, [visibleTasks]);
 
   // ── Agrupamento por coluna ─────────────────────────────────────────────────
   const tasksByStatus = useMemo(() =>
     COLUMNS.reduce<Record<TaskStatus, Task[]>>(
       (acc, col) => {
-        acc[col] = tasks.filter((t) => t.status === col && t.user_id !== OWNER_ID);
+        acc[col] = visibleTasks.filter((t) => t.status === col);
         return acc;
       },
       { 'A Fazer': [], 'Em Andamento': [], 'Concluído': [] }
-    ), [tasks]);
+    ), [visibleTasks]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -660,7 +735,32 @@ export default function App() {
             </div>
           </section>
         )}
-
+        
+        {/* Filtro por vendedor */}
+        {!loading && !error && (
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
+                Vendedores
+              </h2>
+              {selectedUsers.length > 0 && (
+                <button
+                  onClick={() => setSelectedUsers([])}
+                  className="text-xs text-indigo-600 hover:underline font-medium"
+                >
+                  Limpar filtro ({selectedUsers.length})
+                </button>
+              )}
+            </div>
+            <VendorFilterBar
+              users={users}
+              selectedUsers={selectedUsers}
+              openCounts={openTaskCountByUser}
+              onToggle={toggleUserFilter}
+              ownerId={OWNER_ID}
+            />
+          </section>
+        )}
         {/* Board */}
         <section>
           <h2 className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-3">
