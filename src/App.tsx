@@ -40,6 +40,8 @@ const EMPTY_FORM: NewTask = {
   priority: 'Média',
 };
 
+const OWNER_ID = 1; // Ricardo — dono da empresa, excluído dos KPIs gerais
+
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatDate(raw: string): string {
@@ -467,29 +469,57 @@ export default function App() {
   }
   // ── KPIs ───────────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
-    const total       = tasks.length;
-    const done        = tasks.filter((t) => t.status === 'Concluído').length;
-    const inProgress  = tasks.filter((t) => t.status === 'Em Andamento').length;
-    const overdue     = tasks.filter((t) => isOverdue(t.due_date, t.status)).length;
+    
+    const teamTasks  = tasks.filter((t) => t.user_id !== OWNER_ID);
+    const total      = teamTasks.length;
+    const done       = teamTasks.filter((t) => t.status === 'Concluído').length;
+    const inProgress = teamTasks.filter((t) => t.status === 'Em Andamento').length;
+    const overdue    = teamTasks.filter((t) => isOverdue(t.due_date, t.status)).length;
     const rate        = total > 0 ? Math.round((done / total) * 100) : 0;
 
     // Carga: membro com mais tarefas abertas
     const load: Record<string, number> = {};
     tasks
-      .filter((t) => t.status !== 'Concluído' && t.users?.name)
+      .filter((t) => t.status !== 'Concluído' && t.users?.name && t.user_id !== OWNER_ID)   
       .forEach((t) => {
         const n = t.users!.name;
         load[n] = (load[n] ?? 0) + 1;
       });
     const topMember = Object.entries(load).sort((a, b) => b[1] - a[1])[0];
 
-    return { total, done, inProgress, overdue, rate, topMember };
+    // Quem tem MENOS demandas abertas
+    const leastLoaded = Object.entries(load).sort((a, b) => a[1] - b[1])[0];
+
+    // Quem tem MAIS tarefas atrasadas
+    const overdueByMember: Record<string, number> = {};
+    tasks
+      .filter((t) => isOverdue(t.due_date, t.status) && t.users?.name && t.user_id !== OWNER_ID)
+      .forEach((t) => {
+        const n = t.users!.name;
+        overdueByMember[n] = (overdueByMember[n] ?? 0) + 1;
+      });
+    const mostOverdue = Object.entries(overdueByMember).sort((a, b) => b[1] - a[1])[0];
+
+    // Quem mais concluiu no prazo
+    const completedOnTime: Record<string, number> = {};
+    tasks
+      .filter((t) => t.status === 'Concluído' && t.users?.name && t.user_id !== OWNER_ID)
+      .forEach((t) => {
+        const n = t.users!.name;
+        completedOnTime[n] = (completedOnTime[n] ?? 0) + 1;
+      });
+    const topCompleter = Object.entries(completedOnTime).sort((a, b) => b[1] - a[1])[0];
+
+    return { total, done, inProgress, overdue, rate, topMember, leastLoaded, mostOverdue, topCompleter };
   }, [tasks]);
 
   // ── Agrupamento por coluna ─────────────────────────────────────────────────
   const tasksByStatus = useMemo(() =>
     COLUMNS.reduce<Record<TaskStatus, Task[]>>(
-      (acc, col) => { acc[col] = tasks.filter((t) => t.status === col); return acc; },
+      (acc, col) => {
+        acc[col] = tasks.filter((t) => t.status === col && t.user_id !== OWNER_ID);
+        return acc;
+      },
       { 'A Fazer': [], 'Em Andamento': [], 'Concluído': [] }
     ), [tasks]);
 
@@ -557,6 +587,31 @@ export default function App() {
                   accent="text-amber-600"
                 />
               )}
+              {kpis.leastLoaded && (
+                <KpiCard
+                  label="Menor carga"
+                  value={kpis.leastLoaded[0].split(' ')[0]}
+                  sub={`${kpis.leastLoaded[1]} tarefas abertas`}
+                  accent="text-emerald-600"
+                />
+              )}
+              {kpis.mostOverdue && (
+                <KpiCard
+                  label="Mais atrasado"
+                  value={kpis.mostOverdue[0].split(' ')[0]}
+                  sub={`${kpis.mostOverdue[1]} tarefas atrasadas`}
+                  accent="text-red-600"
+                />
+              )}
+              {kpis.topCompleter && (
+                <KpiCard
+                  label="Mais produtivo"
+                  value={kpis.topCompleter[0].split(' ')[0]}
+                  sub={`${kpis.topCompleter[1]} concluídas`}
+                  accent="text-indigo-600"
+                />
+              )}
+
             </div>
           </section>
         )}
