@@ -565,14 +565,14 @@ export default function App() {
     setSaving(false);
   }
 
-    // ── Filtro por vendedor ─────────────────────────────────────────────────────
+    // ── Filtro por usuario ─────────────────────────────────────────────────────
   function toggleUserFilter(userId: number) {
     setSelectedUsers((prev) =>
       prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
     );
   }
 
-  // ── Tarefas visíveis (aplica o filtro de vendedor) ──────────────────────────
+  // ── Tarefas visíveis (aplica o filtro de usuario) ──────────────────────────
   const visibleTasks = useMemo(() => {
     if (selectedUsers.length === 0) {
       return tasks.filter((t) => t.user_id !== OWNER_ID);
@@ -580,7 +580,7 @@ export default function App() {
     return tasks.filter((t) => t.user_id !== null && selectedUsers.includes(t.user_id));
   }, [tasks, selectedUsers]);
 
-    // ── Contagem de tarefas em aberto por vendedor (pra top bar) ────────────────
+    // ── Contagem de tarefas em aberto por usuario (pra top bar) ────────────────
   const openTaskCountByUser = useMemo(() => {
     const counts: Record<number, number> = {};
     tasks.forEach((t) => {
@@ -736,12 +736,12 @@ export default function App() {
           </section>
         )}
         
-        {/* Filtro por vendedor */}
+        {/* Filtro por usuario */}
         {!loading && !error && (
           <section>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
-                Vendedores
+                Usuarios
               </h2>
               {selectedUsers.length > 0 && (
                 <button
