@@ -1,7 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
+import { Trash2 } from 'lucide-react';
 import { createPortal } from 'react-dom';    
 import { supabase } from './lib/supabase';
 import type { Task, TaskStatus, TaskPriority, NewTask } from './types/database.types';
+
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
@@ -85,26 +87,44 @@ function KpiCard({
 // ─── Task Card ────────────────────────────────────────────────────────────────
 
 function TaskCard({
-  task, onMove, moving,
+  task, onMove, onDelete, moving, deleting,
 }: {
   task: Task;
   onMove: (id: number, status: TaskStatus) => void;
+  onDelete: (id: number) => void;
   moving: boolean;
+  deleting: boolean;
 }) {
   const overdue = isOverdue(task.due_date, task.status);
   const next = COLUMN_NEXT[task.status];
   const prev = COLUMN_PREV[task.status];
 
+  function handleDeleteClick() {
+    if (window.confirm(`Excluir a tarefa "${task.title}"? Essa ação não pode ser desfeita.`)) {
+      onDelete(task.id);
+    }
+  }
+
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 flex flex-col gap-3">
-      {/* Topo: prioridade + id */}
+    <div className={`bg-white rounded-xl border border-gray-200 p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 flex flex-col gap-3 ${deleting ? 'opacity-40 pointer-events-none' : ''}`}>
+      {/* Topo: prioridade + id + excluir */}
       <div className="flex items-center justify-between">
         {task.priority ? (
           <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${PRIORITY_STYLES[task.priority]}`}>
             {task.priority}
           </span>
         ) : <span />}
-        <span className="text-[11px] text-gray-300 font-mono">#{task.id}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-gray-300 font-mono">#{task.id}</span>
+          <button
+            onClick={handleDeleteClick}
+            disabled={deleting}
+            title="Excluir tarefa"
+            className="text-gray-300 hover:text-red-500 transition-colors disabled:opacity-40"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
 
       {/* Título e descrição */}
@@ -138,7 +158,7 @@ function TaskCard({
       <div className="flex gap-2 pt-1">
         {prev && (
           <button
-            disabled={moving}
+            disabled={moving || deleting}
             onClick={() => onMove(task.id, prev)}
             className="flex-1 text-xs py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 transition-colors"
           >
@@ -147,7 +167,7 @@ function TaskCard({
         )}
         {next && (
           <button
-            disabled={moving}
+            disabled={moving || deleting}
             onClick={() => onMove(task.id, next)}
             className="flex-1 text-xs py-1.5 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 transition-colors font-medium"
           >
@@ -162,12 +182,14 @@ function TaskCard({
 // ─── Kanban Column ────────────────────────────────────────────────────────────
 
 function KanbanColumn({
-  status, tasks, onMove, movingId,
+  status, tasks, onMove, onDelete, movingId, deletingId,
 }: {
   status: TaskStatus;
   tasks: Task[];
   onMove: (id: number, status: TaskStatus) => void;
+  onDelete: (id: number) => void;
   movingId: number | null;
+  deletingId: number | null;
 }) {
   const { badge, borderTop, dot } = STATUS_STYLES[status];
 
@@ -194,7 +216,9 @@ function KanbanColumn({
               key={task.id}
               task={task}
               onMove={onMove}
+              onDelete={onDelete}
               moving={movingId === task.id}
+              deleting={deletingId === task.id}
             />
           ))
         )}
@@ -394,6 +418,7 @@ export default function App() {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
   const [movingId, setMovingId]     = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [showModal, setShowModal]   = useState(false);
   const [saving, setSaving]         = useState(false);
 
@@ -446,6 +471,26 @@ export default function App() {
 
     setMovingId(null);
   }
+  // ── Excluir tarefa ─────────────────────────────────────────────────────────
+  async function handleDelete(taskId: number) {
+    setDeletingId(taskId);
+
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', taskId);
+
+    if (error) {
+      console.error('Erro ao excluir tarefa:', error);
+      alert('Não foi possível excluir a tarefa. Tente novamente.');
+      setDeletingId(null);
+      return;
+    }
+
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setDeletingId(null);
+  }
+  
 
   // ── Criar nova tarefa ──────────────────────────────────────────────────────
   async function handleSave(data: NewTask) {
@@ -630,19 +675,6 @@ export default function App() {
 
           {loading && <KanbanSkeleton />}
 
-          {!loading && !error && tasks.length === 0 && (
-            <div className="text-center py-24 text-gray-400">
-              <p className="text-lg font-semibold">Nenhuma tarefa cadastrada</p>
-              <p className="text-sm mt-1">
-                Clique em{' '}
-                <button onClick={() => setShowModal(true)} className="text-indigo-500 underline">
-                  + Nova tarefa
-                </button>{' '}
-                para começar.
-              </p>
-            </div>
-          )}
-
           {!loading && !error && tasks.length > 0 && (
             <div className="flex gap-5 overflow-x-auto pb-6">
               {COLUMNS.map((col) => (
@@ -651,7 +683,9 @@ export default function App() {
                   status={col}
                   tasks={tasksByStatus[col]}
                   onMove={handleMove}
+                  onDelete={handleDelete}
                   movingId={movingId}
+                  deletingId={deletingId}
                 />
               ))}
             </div>
