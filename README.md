@@ -5,7 +5,7 @@ Ferramenta de gestão de tarefas para um time de produto e tecnologia (devs, des
 ## Como rodar
 
 ```bash
-git clone <https://github.com/wccauan/desafio-quatro5.git>
+git clone https://github.com/wccauan/desafio-quatro5.git
 cd desafio-quatro5
 npm install
 npm run dev
